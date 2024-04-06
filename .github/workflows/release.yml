@@ -1,30 +1,33 @@
----
-name: Release
-on:  # yamllint disable-line rule:truthy
-  release:
-    types: [published]
+name: Build oci images and copy image to docker hub
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
 
 jobs:
-  # Builds the Dockerfile and pushes it to dockerhub and GHCR
-  release:
-    name: Release - Docker image
+  build-fastgpt-docs-images:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Docker - Login
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Get current date and time
+        id: datetime
+        run: echo "datetime=$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Docker - GHCR Login
-        uses: docker/login-action@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # list of Docker images to use as base name for tags
+          images: |
+            ${{ secrets.DOCKER_USERNAME }}/palworld-server-docker
+            ghcr.io/${{ github.repository_owner }}/palworld-server-docker
+            registry.cn-hangzhou.aliyuncs.com/${{ secrets.ALI_HUB_USERNAME }}/palworld-server-docker
+          tags: |
+            ${{ steps.datetime.outputs.datetime }}
+          flavor: latest=false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -32,26 +35,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Docker - Metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
-          images: |
-            ${{ github.repository }}
-            ghcr.io/${{ github.repository }}
-          # generate Docker tags based on the following events/attributes
-          tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern=v{{major}}.{{minor}}
-            type=semver,pattern=v{{major}}
-          flavor: latest=true
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Docker - Build / Push
-        id: docker_build
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Login to Aliyun
+        uses: docker/login-action@v3
+        with:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.ALI_HUB_USERNAME }}
+          password: ${{ secrets.ALI_HUB_PASSWORD }}
+
+      - name: Build and push Docker images to ghcr.io and DockerHub
         uses: docker/build-push-action@v5
         with:
-          platforms: linux/amd64,linux/arm64
+          context: .
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          build-args: |
-            GIT_VERSION_TAG=${{ github.event.release.tag_name }}
+          labels: ${{ steps.meta.outputs.labels }}

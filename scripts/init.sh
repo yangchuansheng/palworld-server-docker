@@ -22,6 +22,11 @@ if ! [ -w "/palworld" ]; then
     exit 1
 fi
 
+if [ -d "/palworld-data" ]; then
+    mkdir -p /palworld
+    mv /palworld-data/* /palworld/
+fi
+
 mkdir -p /palworld/backups
 
 # shellcheck disable=SC2317
